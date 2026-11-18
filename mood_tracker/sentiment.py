@@ -144,9 +144,16 @@ class OllamaScorer:
         request = urllib.request.Request(
             self.url, json.dumps(body).encode(), {"Content-Type": "application/json"}
         )
-        with urllib.request.urlopen(request, timeout=300) as response:
-            reply = json.load(response)
-        return parse_label(reply["message"]["content"])
+        # Larger models now and then return an empty or cut-off reply; one retry
+        # usually fixes it. A second bad reply raises ValueError for the caller.
+        for attempt in range(2):
+            with urllib.request.urlopen(request, timeout=300) as response:
+                reply = json.load(response)
+            try:
+                return parse_label(reply["message"]["content"])
+            except ValueError:
+                if attempt == 1:
+                    raise
 
 
 class ClaudeScorer:

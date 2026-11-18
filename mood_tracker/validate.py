@@ -22,7 +22,9 @@ from pathlib import Path
 import pandas as pd
 
 from mood_tracker.sampling import relevant_paragraphs
-from mood_tracker.sentiment import OUTLOOK_LABELS, PROMPT_VERSION, STANCE_LABELS, make_scorer
+from mood_tracker.sentiment import (
+    OUTLOOK_LABELS, PROMPT_VERSION, STANCE_LABELS, Label, make_scorer,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 PARAGRAPHS = ROOT / "data" / "processed" / "paragraphs.parquet"
@@ -75,6 +77,17 @@ def select_split(sheet: pd.DataFrame, split: str) -> pd.DataFrame:
     return sheet
 
 
+# Stands in for a paragraph the model gave no valid label for, so it counts as wrong.
+FAILED = Label("failed", "failed")
+
+
+def score_or_fail(scorer, text: str) -> Label:
+    try:
+        return scorer.score(text)
+    except (ValueError, KeyError):
+        return FAILED
+
+
 def evaluate(sheet_path: Path, backend: str, model: str | None, split: str = "all") -> None:
     sheet = pd.read_csv(sheet_path, encoding="utf-8-sig")
     for column, labels in DIMENSIONS.items():
@@ -90,9 +103,11 @@ def evaluate(sheet_path: Path, backend: str, model: str | None, split: str = "al
 
     sheet = select_split(sheet, split)
     scorer = make_scorer(backend, model)
-    predictions = [scorer.score(text) for text in sheet["paragraph"]]
+    predictions = [score_or_fail(scorer, text) for text in sheet["paragraph"]]
+    failed = sum(p is FAILED for p in predictions)
     print(f"{scorer.backend} / {scorer.model}, prompt {PROMPT_VERSION}, {split} split: "
-          f"{len(sheet)} reference-labelled paragraphs\n")
+          f"{len(sheet)} reference-labelled paragraphs"
+          + (f", {failed} with no valid reply (counted as wrong)" if failed else "") + "\n")
     for column, labels in DIMENSIONS.items():
         predicted = pd.Series([getattr(p, column) for p in predictions], index=sheet.index)
         sheet[f"model_{column}"] = predicted
