@@ -1,6 +1,6 @@
 """Score a sample of speech paragraphs and save the labels.
 
-Results go to data/scores/<backend>__<model>.parquet. The run is resumable:
+Results go to data/scores/<backend>__<model>__<prompt version>.parquet. The run is resumable:
 paragraphs already in that file are skipped, and progress is saved every
 `--save-every` paragraphs, so you can stop with Ctrl+C and pick up later.
 
@@ -21,7 +21,7 @@ from pathlib import Path
 import pandas as pd
 
 from mood_tracker.sampling import sample_paragraphs
-from mood_tracker.sentiment import make_scorer
+from mood_tracker.sentiment import PROMPT_VERSION, make_scorer
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 PARAGRAPHS = DATA_DIR / "processed" / "paragraphs.parquet"
@@ -30,8 +30,10 @@ KEY = ["speech_id", "paragraph_no"]
 
 
 def scores_path(backend: str, model: str) -> Path:
+    # One file per backend, model and prompt version, so labels from different
+    # prompts are never mixed when resuming a run.
     safe_model = model.replace(":", "-").replace("/", "-")
-    return SCORES_DIR / f"{backend}__{safe_model}.parquet"
+    return SCORES_DIR / f"{backend}__{safe_model}__{PROMPT_VERSION}.parquet"
 
 
 def load_existing(path: Path) -> pd.DataFrame:

@@ -22,7 +22,7 @@ from pathlib import Path
 import pandas as pd
 
 from mood_tracker.sampling import relevant_paragraphs
-from mood_tracker.sentiment import OUTLOOK_LABELS, STANCE_LABELS, make_scorer
+from mood_tracker.sentiment import OUTLOOK_LABELS, PROMPT_VERSION, STANCE_LABELS, make_scorer
 
 ROOT = Path(__file__).resolve().parents[1]
 PARAGRAPHS = ROOT / "data" / "processed" / "paragraphs.parquet"
@@ -30,6 +30,7 @@ SHEET = ROOT / "data" / "validation" / "to_label.csv"
 COMMITTED_LABELS = ROOT / "validation" / "labels.csv"
 KEY = ["speech_id", "paragraph_no"]
 DIMENSIONS = {"stance": STANCE_LABELS, "outlook": OUTLOOK_LABELS}
+DEV_SIZE = 60
 
 
 def export_sheet(n: int, seed: int) -> None:
@@ -57,11 +58,24 @@ def agreement_report(truth: pd.Series, predicted: pd.Series, labels: tuple[str, 
         if tp + fp + fn:
             f1_scores.append(2 * tp / (2 * tp + fp + fn))
     macro_f1 = sum(f1_scores) / len(f1_scores)
-    confusion = pd.crosstab(truth.rename("hand"), predicted.rename("model"))
+    confusion = pd.crosstab(truth.rename("reference"), predicted.rename("model"))
     return f"accuracy {accuracy:.0%}, macro-F1 {macro_f1:.2f}\n{confusion.to_string()}"
 
 
-def evaluate(sheet_path: Path, backend: str, model: str | None) -> None:
+def select_split(sheet: pd.DataFrame, split: str) -> pd.DataFrame:
+    """The sheet is already shuffled; its first DEV_SIZE rows are for prompt tuning.
+
+    Tune prompts on `dev` only and report `test`, so the accuracy we quote was
+    never used to choose the prompt.
+    """
+    if split == "dev":
+        return sheet.iloc[:DEV_SIZE]
+    if split == "test":
+        return sheet.iloc[DEV_SIZE:]
+    return sheet
+
+
+def evaluate(sheet_path: Path, backend: str, model: str | None, split: str = "all") -> None:
     sheet = pd.read_csv(sheet_path, encoding="utf-8-sig")
     for column, labels in DIMENSIONS.items():
         sheet[column] = sheet[column].astype(str).str.strip().str.lower()
@@ -74,12 +88,20 @@ def evaluate(sheet_path: Path, backend: str, model: str | None) -> None:
     keep = KEY + ["country", "stance", "outlook"] + (["labeller"] if "labeller" in sheet else [])
     sheet[keep].to_csv(COMMITTED_LABELS, index=False)
 
+    sheet = select_split(sheet, split)
     scorer = make_scorer(backend, model)
     predictions = [scorer.score(text) for text in sheet["paragraph"]]
-    print(f"{scorer.backend} / {scorer.model} on {len(sheet)} reference-labelled paragraphs\n")
+    print(f"{scorer.backend} / {scorer.model}, prompt {PROMPT_VERSION}, {split} split: "
+          f"{len(sheet)} reference-labelled paragraphs\n")
     for column, labels in DIMENSIONS.items():
         predicted = pd.Series([getattr(p, column) for p in predictions], index=sheet.index)
+        sheet[f"model_{column}"] = predicted
         print(f"{column}: {agreement_report(sheet[column], predicted, labels)}\n")
+
+    # Keep row-level predictions for error analysis (contains speech text, so not committed).
+    safe_model = scorer.model.replace(":", "-").replace("/", "-")
+    out = SHEET.parent / f"predictions__{safe_model}__{PROMPT_VERSION}__{split}.csv"
+    sheet.to_csv(out, index=False, encoding="utf-8-sig")
 
 
 def main() -> None:
@@ -92,12 +114,14 @@ def main() -> None:
     check.add_argument("sheet", type=Path, nargs="?", default=SHEET)
     check.add_argument("--backend", choices=["ollama", "claude"], default="ollama")
     check.add_argument("--model")
+    check.add_argument("--split", choices=["all", "dev", "test"], default="all",
+                       help=f"dev = first {DEV_SIZE} rows (for tuning), test = the rest")
     args = parser.parse_args()
 
     if args.command == "export":
         export_sheet(args.n, args.seed)
     else:
-        evaluate(args.sheet, args.backend, args.model)
+        evaluate(args.sheet, args.backend, args.model, args.split)
 
 
 if __name__ == "__main__":
