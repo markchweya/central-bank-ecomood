@@ -70,7 +70,9 @@ def evaluate(sheet_path: Path, backend: str, model: str | None) -> None:
         raise SystemExit("No labelled rows found; fill in the stance and outlook columns first.")
 
     COMMITTED_LABELS.parent.mkdir(parents=True, exist_ok=True)
-    sheet[KEY + ["country", "stance", "outlook"]].to_csv(COMMITTED_LABELS, index=False)
+    # Optional `labeller` column records who made the reference labels (a person or a model).
+    keep = KEY + ["country", "stance", "outlook"] + (["labeller"] if "labeller" in sheet else [])
+    sheet[keep].to_csv(COMMITTED_LABELS, index=False)
 
     scorer = make_scorer(backend, model)
     predictions = [scorer.score(text) for text in sheet["paragraph"]]
