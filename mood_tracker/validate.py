@@ -76,7 +76,7 @@ def evaluate(sheet_path: Path, backend: str, model: str | None) -> None:
 
     scorer = make_scorer(backend, model)
     predictions = [scorer.score(text) for text in sheet["paragraph"]]
-    print(f"{scorer.backend} / {scorer.model} on {len(sheet)} hand-labelled paragraphs\n")
+    print(f"{scorer.backend} / {scorer.model} on {len(sheet)} reference-labelled paragraphs\n")
     for column, labels in DIMENSIONS.items():
         predicted = pd.Series([getattr(p, column) for p in predictions], index=sheet.index)
         print(f"{column}: {agreement_report(sheet[column], predicted, labels)}\n")
