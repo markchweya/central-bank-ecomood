@@ -29,7 +29,7 @@ It extends the method in the BIS paper [*Large language models: a primer for eco
 | LLM sentiment scoring | built; accuracy check needs hand labels |
 | Topic modelling | planned |
 | Monthly mood index | done (COBOL) |
-| Macro data and forecast test | planned |
+| Macro data and forecast test | built (R); needs a longer scored history |
 | Dashboard | planned |
 
 ## Run it locally
@@ -87,6 +87,26 @@ Tests check the COBOL output against an independent pandas calculation:
 pip install -r requirements-dev.txt
 pytest
 ```
+
+### Forecast test (R)
+
+Requires R 4.x with `testthat` (only for the tests). Macro data comes from official SDMX APIs: monthly policy rates from the [BIS](https://data.bis.org) and quarterly real GDP growth from the [OECD](https://data-explorer.oecd.org). Both are cached in `data/macro/`. Neither source covers Kenya, so Kenya is skipped.
+
+Two out-of-sample exercises, estimated on an expanding window:
+
+| Target | Benchmark | With mood |
+| --- | --- | --- |
+| Policy-rate change over the next 3 months | past 3-month rate change | + stance index (3-month mean) |
+| Real GDP growth next quarter | AR(1) | + outlook index (quarterly mean) |
+
+Forecasts are compared with RMSE ratios and the Diebold-Mariano test.
+
+```bash
+Rscript r/run_forecast.R              # writes results/forecast_results.csv and .md
+Rscript r/tests/test_forecast_eval.R
+```
+
+The test needs several years of scored months per country (36 months of training before the first rate forecast), so score a long history first, for example `--countries US EA GB JP CA --start 2005 --per-month 5`.
 
 ## Data
 
